@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-IDS | Autonomous Predictive Defense</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        :root {
+            --neon-green: #00ff41;
+            --neon-red: #ff003c;
+            --neon-cyan: #0fe0ff;
+            --neon-purple: #bb86fc;
+            --bg-dark: #0a0a0b;
+            --panel-bg: rgba(20, 20, 25, 0.85);
+            --border-color: rgba(0, 255, 65, 0.2);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 350px 1.2fr 350px;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .stats-header {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 15px;
+            padding: 0 20px 20px 20px;
+        }
+
+        .stat-box {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            padding: 10px 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .stat-box label { font-size: 0.7rem; color: var(--neon-cyan); text-transform: uppercase; }
+        .stat-box span { font-size: 1.2rem; font-weight: bold; color: #fff; }
+
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+            color: #ddd;
+        }
+
+        .data-table th {
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            padding: 8px;
+            color: var(--neon-cyan);
+        }
+
+        .data-table td {
+            padding: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .severity-high { color: var(--neon-red); font-weight: bold; }
+        .severity-medium { color: #ffa500; }
+        .severity-low { color: var(--neon-green); }
+
+        .tabs { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; }
+        .tab { padding: 8px 15px; cursor: pointer; border: 1px solid transparent; opacity: 0.6; }
+        .tab.active { border: 1px solid var(--border-color); border-bottom: none; opacity: 1; color: var(--neon-green); }
+        
+        .diagnostics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px; }
+        .diagnostic-card { background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); padding: 10px; border-radius: 5px; }
+        .diagnostic-card img { width: 100%; height: auto; border: 1px solid rgba(0,255,65,0.1); }
+
+        .report-section { background: rgba(15, 224, 255, 0.05); border: 1px solid var(--neon-cyan); padding: 15px; margin-top: 20px; border-radius: 8px; }
+        .report-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--neon-cyan); padding-bottom: 10px; margin-bottom: 10px; }
+        .report-badge { padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; background: var(--neon-cyan); color: #000; font-weight: bold; }
+        
+        .feature-bar-container { margin-top: 10px; }
+        .feature-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; font-size: 0.8rem; }
+        .feature-name { width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .feature-bar-bg { flex: 1; height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
+        .feature-bar-fill { height: 100%; background: var(--neon-cyan); }
+        
+        .realtime-input { display: flex; flex-direction: column; gap: 10px; }
+        .input-row { display: flex; justify-content: space-between; align-items: center; }
+        .input-row input, .input-row select { background: #000; border: 1px solid var(--border-color); color: #fff; padding: 4px; font-family: 'Share Tech Mono'; width: 120px; }
+
+        .meter-container { height: 100px; display: flex; align-items: center; justify-content: center; position: relative; }
+        .meter-label { position: absolute; font-size: 1.5rem; font-weight: bold; }
+    </style>
+</head>
+
+<body>
+    <div class="overlay"></div>
+
+    <header>
+        <div class="logo">
+            <i class="fas fa-shield-alt"></i>
+            <h1>X-IDS <span class="subtitle">v5.0 Autonomous Defense</span></h1>
+        </div>
+        <div class="header-status">
+            <span style="color: var(--neon-purple); margin-right: 15px;">POSTURE: <i class="fas fa-shield-virus"></i> {{ mode|default('MONITORING') }}</span>
+            <div class="status-indicator" id="status_circle"></div>
+            SYSTEM STATE: <span id="status_text">{{ system_status|default('SECURE') }}</span>
+        </div>
+    </header>
+
+    <section class="stats-header">
+        <div class="stat-box">
+            <label>Neural Health</label>
+            <span id="health_pct">{{ health_pct|default(100) }}%</span>
+        </div>
+        <div class="stat-box">
+            <label>Analyses Complete</label>
+            <span id="total_inspections">{{ stats.total_inspections }}</span>
+        </div>
+        <div class="stat-box">
+            <label>Threats Nullified</label>
+            <span id="attacks_mitigated" style="color: var(--neon-red);">{{ stats.attacks_mitigated }}</span>
+        </div>
+        <div class="stat-box">
+            <label>Zone Status</label>
+            <span id="threat_level" class="{{ 'severity-high' if zone_status != 'CLEAR' else 'severity-low' }}">{{ zone_status|default('CLEAR') }}</span>
+        </div>
+        <div class="stat-box">
+            <label>Firewall Status</label>
+            <span id="block_status" class="{{ 'severity-high' if block_status == 'Blocked' else 'severity-low' }}">{{ block_status|default('Monitoring') }}</span>
+        </div>
+    </section>
+
+    <main class="dashboard-grid">
+        <!-- LEFT PANEL: SYSTEM CONTROLS & LOGS -->
+        <div class="side-panel">
+            <section class="panel">
+                <h2><i class="fas fa-sliders-h"></i> CORE ANALYZER</h2>
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab('realtime')">HYBRID</div>
+                    <div class="tab" onclick="switchTab('legacy')">BATCH</div>
+                </div>
+
+                <div id="realtime-panel" class="realtime-input">
+                    <form action="/analyze_realtime" method="POST">
+                        <div class="input-row"><label>S_IP:</label><input type="text" name="source_ip" placeholder="Enter IP (e.g., 8.8.8.8)" required value="192.168.1.105"></div>
+                        <div class="input-row"><label>PROT:</label><select name="protocol_type"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
+                        <div class="input-row"><label>BYTES:</label><input type="number" name="src_bytes" value="4520"></div>
+                        <div class="input-row"><label>COUNT:</label><input type="number" name="count" value="15"></div>
+                        <div class="input-row"><label>SVC/FLG:</label><div style="display:flex; gap:5px;">
+                            <select name="service" style="width: 75px;">
+                                <option value="http">HTTP</option>
+                                <option value="smtp">SMTP</option>
+                                <option value="ftp">FTP</option>
+                                <option value="ssh">SSH</option>
+                                <option value="dns">DNS</option>
+                                <option value="telnet">TELNET</option>
+                                <option value="private">PRIVATE</option>
+                                <option value="other">OTHER</option>
+                            </select>
+                            <select name="flag" style="width: 55px;">
+                                <option value="SF">SF</option>
+                                <option value="S0">S0</option>
+                                <option value="REJ">REJ</option>
+                                <option value="RSTR">RSTR</option>
+                                <option value="SH">SH</option>
+                            </select>
+                        </div></div>
+                        <button type="submit" class="cyber-btn" style="width:100%; margin-top:10px;"><i class="fas fa-play"></i> EXECUTE ANALYSIS</button>
+                    </form>
+                </div>
+
+                <div id="legacy-panel" style="display:none">
+                    <form method="POST" action="/predict">
+                         <input type="text" name="source_ip" placeholder="Enter IP (e.g., 8.8.8.8)" style="width:100%; background:#000; color:#fff; border:1px solid var(--border-color); padding:10px; margin-bottom: 5px;" required>
+                         <input type="number" name="index" placeholder="Packet Index" style="width:100%; background:#000; color:#fff; border:1px solid var(--border-color); padding:10px;">
+                         <button type="submit" class="cyber-btn" style="width:100%; margin-top:5px;">VAL DATA ROW</button>
+                    </form>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2><i class="fas fa-microchip"></i> KERNEL CONSOLE</h2>
+                <div class="terminal-screen" style="height: 180px; overflow-y: auto;">
+                    <div class="terminal-text" id="logContent" style="font-size: 0.75rem;">
+                        {% if healing_actions %}
+                            {% for action in healing_actions %}
+                            <p class="typing-effect">> {{ action }}</p>
+                            {% endfor %}
+                        {% else %}
+                            <p class="typing-effect">> Neural Network Standby. Ready for ingress flow inspection...</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2><i class="fas fa-globe"></i> GEOGRAPHIC RECON</h2>
+                <div style="font-size: 0.9rem; padding: 5px;">
+                    <p>ORIGIN: <span style="color: var(--neon-cyan)">{{ source_ip|default('Awaiting Data...') }}</span></p>
+                    <p>COUNTRY: <span style="color: var(--neon-green)">{{ geo.country|default('Unknown') }}</span></p>
+                    <p>CITY: <span style="color: var(--neon-purple)">{{ geo.city|default('Unknown') }}</span></p>
+                    <p>LAT/LONG: [ {{ geo.lat|default('0.0') }}, {{ geo.lon|default('0.0') }} ]</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- CENTER PANEL: THREAT ANALYSIS & MITIGATION -->
+        <div class="center-content">
+            {% if prediction %}
+            <section class="panel" id="result_panel">
+                <div class="report-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px;">
+                    <h1 id="result_title" style="margin: 0; font-size: 2.2rem;">{{ prediction }}</h1>
+                    <div id="result_badge" class="report-badge" style="color: #000; padding: 5px 15px;">
+                        CONFIDENCE: {{ confidence|default(0) }}%
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    {% if top_features %}
+                    <div class="feature-bar-container">
+                        <p style="font-size: 0.8rem; color: #888; font-weight: bold;">THREAT FINGERPRINTS (NEURAL CORRELATION):</p>
+                        {% for name, val, pct in top_features %}
+                        <div class="feature-row">
+                            <span class="feature-name" style="width: 180px;">{{ name }}</span>
+                            <div class="feature-bar-bg">
+                                <div class="feature-bar-fill" data-pct="{{ pct }}"></div>
+                            </div>
+                            <span style="font-size: 0.8rem; width: 45px; text-align: right;">+{{ "%.2f"|format(val|abs) }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+
+                {% if amre_data %}
+                <div class="report-section" style="border-color: var(--neon-cyan); background: rgba(15, 224, 255, 0.03);">
+                    <div class="report-header">
+                        <h3 style="color: var(--neon-cyan);"><i class="fas fa-shield-virus"></i> AMRE MITIGATION PROTOCOL</h3>
+                        <span class="report-badge" style="background: var(--neon-cyan); color: #000;">RISK: {{ amre_data['Risk Score'] }}</span>
+                    </div>
+                    <div style="font-size: 0.9rem; line-height: 1.6;">
+                        <p><strong>THREAT STAGE:</strong> {{ amre_data['Threat Stage'] }}</p>
+                        <p><strong>DEFENSE STRATEGY:</strong> {{ amre_data['Automated Defense Strategy'] }}</p>
+                        <div style="margin-top: 10px; border-left: 2px solid var(--neon-red); padding-left: 15px; color: #ccc;">
+                            {% for log in amre_data['Incident Report Summary'] %}
+                            <p style="margin-bottom: 5px; font-style: italic;">"{{ log }}"</p>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if aic_data %}
+                <div class="report-section" style="border-color: var(--neon-purple); background: rgba(187, 134, 252, 0.03); margin-top: 15px;">
+                    <div class="report-header" style="border-color: var(--neon-purple);">
+                        <h3 style="color: var(--neon-purple);"><i class="fas fa-brain"></i> AIC PREDICTIVE FORESIGHT</h3>
+                        <span class="report-badge" style="background: var(--neon-purple);">THREAT SCORE: {{ aic_data.threat_score }}</span>
+                    </div>
+                    <div style="font-size: 0.85rem; line-height: 1.5; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div>
+                            <p><strong>DEFENSE MODE:</strong> {{ aic_data.defense_mode }}</p>
+                            <p><strong>TIME TO IMPACT:</strong> <span class="severity-high">{{ aic_data.time_to_impact }}</span></p>
+                        </div>
+                        <div>
+                            <p><strong>ATTACK SIGNATURE:</strong> {{ aic_data.signature_id }}</p>
+                            <p><strong>NEXT PREDICTED STAGE:</strong> {{ aic_data.next_stage_prediction }}</p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </section>
+            {% else %}
+            <section class="panel" style="min-height: 400px; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0.4;">
+                <i class="fas fa-satellite-dish" style="font-size: 5rem; margin-bottom: 30px; color: var(--neon-cyan);"></i>
+                <h2 style="letter-spacing: 5px;">AWAITING PACKET INGRESS</h2>
+                <p>System monitoring active. Execute an analysis to view neural insights.</p>
+            </section>
+            {% endif %}
+
+            <section class="panel">
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab('diagnostics')">ENGINE DIAGNOSTICS & NEURAL MAP</div>
+                </div>
+                <div id="diagnostics-panel" class="diagnostics-grid">
+                    <div class="diagnostic-card">
+                        <p style="font-size: 0.7rem; color: var(--neon-cyan); margin-bottom: 10px;">CONFUSION MATRIX (ACCURACY VALIDATION)</p>
+                        <img src="{{ url_for('static', filename='confusion_matrix.png') }}?v={{ stats.total_inspections }}" alt="Confusion Matrix">
+                    </div>
+                    <div class="diagnostic-card">
+                        <p style="font-size: 0.7rem; color: var(--neon-cyan); margin-bottom: 10px;">GLOBAL FEATURE IMPORTANCE (TRAINING BIAS)</p>
+                        <img src="{{ url_for('static', filename='feature_importance.png') }}?v={{ stats.total_inspections }}" alt="Feature Importance">
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- RIGHT PANEL: ANALYTICS & MONITORING -->
+        <div class="side-panel">
+            <section class="panel">
+                <h2><i class="fas fa-heartbeat"></i> SYSTEM VITALITY</h2>
+                <div class="meter-container">
+                    <canvas id="secureMeter" width="100" height="100"></canvas>
+                    <div class="meter-label" id="scoreVal">{{ health_pct|default(100) }}%</div>
+                </div>
+                <p style="text-align:center; font-size: 0.8rem; opacity: 0.7;">Neural architecture integrity optimal.</p>
+            </section>
+
+            <section class="panel">
+                <h2><i class="fas fa-wave-square"></i> PREDICTIVE THREAT FORECAST</h2>
+                <div style="height: 180px;">
+                    <canvas id="forecastChart"></canvas>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2><i class="fas fa-user-shield"></i> ACTIVE MITIGATIONS</h2>
+                <div style="max-height: 200px; overflow-y: auto;">
+                    <table class="data-table">
+                        <thead><tr><th>BLOCKED IP</th><th>THREAT TYPE</th></tr></thead>
+                        <tbody>
+                            {% for bl in blacklist %}
+                            <tr><td>{{ bl[0] }}</td><td class="severity-high">{{ bl[1] }}</td></tr>
+                            {% else %}
+                            <tr><td colspan="2" style="text-align:center; opacity: 0.5;">No active blocks</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2><i class="fas fa-history"></i> NEURAL RECALL</h2>
+                <div style="max-height: 200px; overflow-y: auto;">
+                    <table class="data-table">
+                        <thead><tr><th>TIME</th><th>THREAT</th><th>ACTION</th></tr></thead>
+                        <tbody>
+                            {% for item in history %}
+                            <tr>
+                                <td style="font-size: 0.7rem;">{{ item[1][11:19] }}</td>
+                                <td class="severity-medium">{{ item[3] }}</td>
+                                <td style="color: var(--neon-cyan)">{{ item[5] }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+    <!-- Hidden Data for Charts -->
+    <input type="hidden" id="labels_data" value="{{ (forecast_labels or ['-3h', '-2h', '-1h', 'Now', '+1h', '+2h']) | tojson }}">
+    <input type="hidden" id="past_data" value="{{ (chart_past or [10, 20, 15, 5, 2, 1]) | tojson }}">
+    <input type="hidden" id="future_data" value="{{ (chart_future or [None, None, None, 5, 20, 45]) | tojson }}">
+
+    <script>
+        // Update Dynamic UI colors
+        const statusColor = "{{ status_color|default('#00ff41') }}";
+        if (document.getElementById('status_circle')) document.getElementById('status_circle').style.backgroundColor = statusColor;
+        if (document.getElementById('status_text')) document.getElementById('status_text').style.color = statusColor;
+        
+        if (document.getElementById('result_panel')) document.getElementById('result_panel').style.borderTop = `3px solid ${statusColor}`;
+        if (document.getElementById('result_title')) document.getElementById('result_title').style.color = statusColor;
+        if (document.getElementById('result_badge')) document.getElementById('result_badge').style.backgroundColor = statusColor;
+
+        // Apply SHAP bar widths and colors
+        document.querySelectorAll('.feature-bar-fill').forEach(bar => {
+            const pct = bar.getAttribute('data-pct');
+            if (pct) bar.style.width = pct + '%';
+            bar.style.backgroundColor = statusColor;
+        });
+
+        function switchTab(t) {
+            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+            // Activate the clicked tab
+            if (event) event.target.classList.add('active');
+            
+            document.getElementById('realtime-panel').style.display = t === 'realtime' ? 'flex' : 'none';
+            document.getElementById('legacy-panel').style.display = t === 'legacy' ? 'block' : 'none';
+            document.getElementById('diagnostics-panel').style.display = t === 'diagnostics' ? 'block' : 'none';
+        }
+
+        // Security Meter (Doughnut)
+        const healthPct = parseInt("{{ health_pct|default(100) }}");
+        const meterCtx = document.getElementById('secureMeter').getContext('2d');
+        new Chart(meterCtx, {
+            type: 'doughnut',
+            data: {
+                datasets: [{
+                    data: [healthPct, 100 - healthPct],
+                    backgroundColor: [statusColor, '#222'],
+                    borderWidth: 0
+                }]
+            },
+            options: { cutout: '80%', plugins: { legend: { display: false } } }
+        });
+
+        // Forecast Chart (Premium Redesign)
+        const labelsData = JSON.parse(document.getElementById('labels_data').value);
+        const pastData = JSON.parse(document.getElementById('past_data').value);
+        const futureData = JSON.parse(document.getElementById('future_data').value);
+
+        const ctx = document.getElementById('forecastChart').getContext('2d');
+        const pastGradient = ctx.createLinearGradient(0, 0, 0, 140);
+        pastGradient.addColorStop(0, 'rgba(15, 224, 255, 0.3)');
+        pastGradient.addColorStop(1, 'rgba(15, 224, 255, 0)');
+
+        const futureGradient = ctx.createLinearGradient(0, 0, 0, 140);
+        futureGradient.addColorStop(0, 'rgba(255, 0, 60, 0.2)');
+        futureGradient.addColorStop(1, 'rgba(255, 0, 60, 0)');
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labelsData,
+                datasets: [
+                    {
+                        label: 'Historical Threat Probability (%)',
+                        data: pastData,
+                        borderColor: '#0fe0ff',
+                        backgroundColor: pastGradient,
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#0fe0ff'
+                    },
+                    {
+                        label: 'Forecasted Attack Trajectory (%)',
+                        data: futureData,
+                        borderColor: '#ff003c',
+                        backgroundColor: futureGradient,
+                        borderDash: [5, 5],
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#ff003c'
+                    }
+                ]
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false,
+                scales: { 
+                    y: { 
+                        display: true,
+                        grid: { color: 'rgba(0, 255, 65, 0.05)' },
+                        ticks: { color: '#00ff41', font: { size: 8 }, stepSize: 10 },
+                        min: 0,
+                        max: 100
+                    }, 
+                    x: { 
+                        grid: { display: false },
+                        ticks: { color: '#00ff41', font: { size: 8 } } 
+                    } 
+                },
+                plugins: { 
+                    legend: { 
+                        display: true, 
+                        position: 'top',
+                        labels: { 
+                            color: '#ccc', 
+                            font: { size: 7, family: 'Share Tech Mono' },
+                            boxWidth: 10,
+                            padding: 5
+                        } 
+                    } 
+                }
+            }
+        });
+
+        // Auto-scroll logs
+        const log = document.getElementById('logContent');
+        log.parentElement.scrollTop = log.parentElement.scrollHeight;
+    </script>
+</body>
+</html>
